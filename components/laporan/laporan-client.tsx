@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from 'motion/react'
 import {
   TrendingUp, ShoppingBag, CreditCard, Calendar,
   ArrowUp, ArrowDown, ChevronLeft, ChevronRight, Download,
-  FileSpreadsheet, FileText, ChevronDown,
+  FileSpreadsheet, FileText, ChevronDown, Clock,
 } from 'lucide-react'
 import { formatRupiah } from '@/lib/utils/format'
 
