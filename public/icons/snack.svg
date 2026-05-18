@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none" stroke="currentColor" stroke-width="30" stroke-linecap="round" stroke-linejoin="round">
+  <!-- Cookie/biscuit shape -->
+  <circle cx="256" cy="256" r="200"/>
+  <!-- Chocolate chips -->
+  <circle cx="180" cy="190" r="28" fill="currentColor" stroke="none"/>
+  <circle cx="310" cy="175" r="22" fill="currentColor" stroke="none"/>
+  <circle cx="155" cy="300" r="20" fill="currentColor" stroke="none"/>
+  <circle cx="270" cy="305" r="30" fill="currentColor" stroke="none"/>
+  <circle cx="360" cy="280" r="22" fill="currentColor" stroke="none"/>
+  <circle cx="230" cy="390" r="20" fill="currentColor" stroke="none"/>
+  <circle cx="350" cy="380" r="18" fill="currentColor" stroke="none"/>
+</svg>

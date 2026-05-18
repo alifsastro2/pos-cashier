@@ -33,9 +33,26 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 
+# local dev files
+dev.db
+dev.db-journal
+proxy.ts
+seed_alive_coffee.sql
+
+# claude ai
+.claude/
+
+# user uploaded files
+public/uploads/
+
+# separate projects
+manual-book/
+
 # vercel
 .vercel
 
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+/lib/generated/prisma
