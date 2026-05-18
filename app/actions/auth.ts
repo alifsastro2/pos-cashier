@@ -79,29 +79,48 @@ export async function loginDemo() {
     })
     demoTenantId = cloneTenant.id
 
-    // Pre-generate category IDs so we can map them for products — 1 query instead of N
+    // Bulk-insert categories via raw SQL — bypasses Prisma's implicit transaction wrapper
     const categoryIdMap: Record<string, string> = {}
-    await prisma.category.createMany({
-      data: master.categories.map((cat) => {
+    if (master.categories.length > 0) {
+      const catParams: unknown[] = []
+      const catPlaceholders: string[] = []
+      let ci = 1
+      for (const cat of master.categories) {
         const newId = randomUUID()
         categoryIdMap[cat.id] = newId
-        return { id: newId, name: cat.name, icon: cat.icon, tenantId: cloneTenant.id, sortOrder: cat.sortOrder }
-      }),
-    })
+        catPlaceholders.push(`($${ci++}, $${ci++}, $${ci++}, $${ci++}, $${ci++}, NOW(), NOW())`)
+        catParams.push(newId, cat.name, cat.icon ?? null, cloneTenant.id, cat.sortOrder)
+      }
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO "Category" (id, name, icon, "tenantId", "sortOrder", "createdAt", "updatedAt") VALUES ${catPlaceholders.join(',')}`,
+        ...catParams,
+      )
+    }
 
-    // Bulk-insert all products in 1 query instead of N
-    await prisma.product.createMany({
-      data: master.products.map((product) => ({
-        name: product.name,
-        description: product.description,
-        price: product.price,
-        image: product.image,
-        stock: product.stock,
-        isActive: product.isActive,
-        categoryId: product.categoryId ? categoryIdMap[product.categoryId] : null,
-        tenantId: cloneTenant.id,
-      })),
-    })
+    // Bulk-insert products via raw SQL
+    if (master.products.length > 0) {
+      const prodParams: unknown[] = []
+      const prodPlaceholders: string[] = []
+      let pi = 1
+      for (const product of master.products) {
+        prodPlaceholders.push(`($${pi++}, $${pi++}, $${pi++}, $${pi++}, $${pi++}, $${pi++}, $${pi++}, $${pi++}, $${pi++}, NOW(), NOW())`)
+        prodParams.push(
+          randomUUID(),
+          product.name,
+          product.description ?? null,
+          product.price,
+          product.image ?? null,
+          product.stock ?? null,
+          product.isActive,
+          product.categoryId ? (categoryIdMap[product.categoryId] ?? null) : null,
+          cloneTenant.id,
+        )
+      }
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO "Product" (id, name, description, price, image, stock, "isActive", "categoryId", "tenantId", "createdAt", "updatedAt") VALUES ${prodPlaceholders.join(',')}`,
+        ...prodParams,
+      )
+    }
 
     const demoUser = await prisma.user.create({
       data: {
