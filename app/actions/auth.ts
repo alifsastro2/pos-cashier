@@ -1,5 +1,6 @@
 'use server'
 
+import { randomUUID } from 'crypto'
 import bcrypt from 'bcryptjs'
 import { redirect } from 'next/navigation'
 import { prisma } from '@/lib/prisma'
@@ -78,28 +79,29 @@ export async function loginDemo() {
     })
     demoTenantId = cloneTenant.id
 
+    // Pre-generate category IDs so we can map them for products — 1 query instead of N
     const categoryIdMap: Record<string, string> = {}
-    for (const cat of master.categories) {
-      const newCat = await prisma.category.create({
-        data: { name: cat.name, icon: cat.icon, tenantId: cloneTenant.id, sortOrder: cat.sortOrder },
-      })
-      categoryIdMap[cat.id] = newCat.id
-    }
+    await prisma.category.createMany({
+      data: master.categories.map((cat) => {
+        const newId = randomUUID()
+        categoryIdMap[cat.id] = newId
+        return { id: newId, name: cat.name, icon: cat.icon, tenantId: cloneTenant.id, sortOrder: cat.sortOrder }
+      }),
+    })
 
-    for (const product of master.products) {
-      await prisma.product.create({
-        data: {
-          name: product.name,
-          description: product.description,
-          price: product.price,
-          image: product.image,
-          stock: product.stock,
-          isActive: product.isActive,
-          categoryId: product.categoryId ? categoryIdMap[product.categoryId] : null,
-          tenantId: cloneTenant.id,
-        },
-      })
-    }
+    // Bulk-insert all products in 1 query instead of N
+    await prisma.product.createMany({
+      data: master.products.map((product) => ({
+        name: product.name,
+        description: product.description,
+        price: product.price,
+        image: product.image,
+        stock: product.stock,
+        isActive: product.isActive,
+        categoryId: product.categoryId ? categoryIdMap[product.categoryId] : null,
+        tenantId: cloneTenant.id,
+      })),
+    })
 
     const demoUser = await prisma.user.create({
       data: {
