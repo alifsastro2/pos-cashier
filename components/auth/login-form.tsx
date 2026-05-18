@@ -1,16 +1,17 @@
 'use client'
 
-import { useActionState } from 'react'
+import { useActionState, useTransition } from 'react'
 import { motion } from 'motion/react'
-import { login } from '@/app/actions/auth'
+import { login, loginDemo } from '@/app/actions/auth'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import Image from 'next/image'
-import { AlertCircle, Loader2 } from 'lucide-react'
+import { AlertCircle, Loader2, FlaskConical } from 'lucide-react'
 
 export function LoginForm() {
   const [state, action, pending] = useActionState(login, undefined)
+  const [demoPending, startDemo] = useTransition()
 
   return (
     <motion.div
@@ -119,7 +120,22 @@ export function LoginForm() {
           </Button>
         </form>
 
-        <div className="mt-6 pt-6 border-t border-white/8">
+        <div className="mt-6 pt-6 border-t border-white/8 space-y-4">
+          <button
+            type="button"
+            onClick={() => startDemo(() => loginDemo())}
+            disabled={demoPending || pending}
+            className="w-full flex items-center justify-center gap-2 h-11 rounded-xl border border-white/15 text-zinc-300 text-sm font-medium hover:border-orange-500/40 hover:text-orange-400 hover:bg-orange-500/5 transition-all disabled:opacity-50"
+          >
+            {demoPending ? (
+              <><Loader2 className="w-4 h-4 animate-spin" /> Menyiapkan demo...</>
+            ) : (
+              <><FlaskConical className="w-4 h-4" /> Coba Demo Gratis</>
+            )}
+          </button>
+          <p className="text-center text-xs text-zinc-600">
+            Demo menggunakan data contoh • Perubahan tidak tersimpan permanen
+          </p>
           <p className="text-center text-sm text-zinc-500">
             Belum berlangganan?{' '}
             <a
