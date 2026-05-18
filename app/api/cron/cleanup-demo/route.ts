@@ -7,15 +7,15 @@ async function deleteDemoTenant(tenantId: string) {
   const orders = await prisma.order.findMany({ where: { tenantId }, select: { id: true } })
   const orderIds = orders.map((o) => o.id)
 
-  await prisma.$transaction([
-    prisma.payment.deleteMany({ where: { orderId: { in: orderIds } } }),
-    prisma.orderItem.deleteMany({ where: { orderId: { in: orderIds } } }),
-    prisma.order.deleteMany({ where: { tenantId } }),
-    prisma.product.deleteMany({ where: { tenantId } }),
-    prisma.category.deleteMany({ where: { tenantId } }),
-    prisma.user.deleteMany({ where: { tenantId } }),
-    prisma.tenant.delete({ where: { id: tenantId } }),
-  ])
+  if (orderIds.length > 0) {
+    await prisma.payment.deleteMany({ where: { orderId: { in: orderIds } } })
+    await prisma.orderItem.deleteMany({ where: { orderId: { in: orderIds } } })
+    await prisma.order.deleteMany({ where: { tenantId } })
+  }
+  await prisma.product.deleteMany({ where: { tenantId } })
+  await prisma.category.deleteMany({ where: { tenantId } })
+  await prisma.user.deleteMany({ where: { tenantId } })
+  await prisma.tenant.delete({ where: { id: tenantId } })
 }
 
 export async function GET(req: NextRequest) {

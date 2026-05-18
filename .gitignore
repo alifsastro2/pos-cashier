@@ -56,3 +56,5 @@ manual-book/
 next-env.d.ts
 
 /lib/generated/prisma
+
+.vercel

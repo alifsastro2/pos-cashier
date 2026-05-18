@@ -20,8 +20,9 @@ model Tenant {
   taxRate       Float    @default(0)
   accentColor String?  @default("#f97316")
   theme       String?  @default("dark")
-  isActive    Boolean  @default(true)
-  setupDone   Boolean  @default(false)
+  isActive     Boolean  @default(true)
+  setupDone    Boolean  @default(false)
+  isDemoTenant Boolean  @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

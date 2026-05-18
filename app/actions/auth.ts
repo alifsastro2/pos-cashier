@@ -54,8 +54,11 @@ export async function loginDemo() {
   const stamp  = Date.now()
   const demoPassword = await bcrypt.hash(`demo-${stamp}`, 10)
 
-  const { demoUserId, demoTenantId } = await prisma.$transaction(async (tx) => {
-    const cloneTenant = await tx.tenant.create({
+  let demoTenantId: string | null = null
+  let demoUserId: string | null = null
+
+  try {
+    const cloneTenant = await prisma.tenant.create({
       data: {
         name: master.name,
         slug: `demo-${stamp}`,
@@ -73,17 +76,18 @@ export async function loginDemo() {
         isDemoTenant: true,
       },
     })
+    demoTenantId = cloneTenant.id
 
     const categoryIdMap: Record<string, string> = {}
     for (const cat of master.categories) {
-      const newCat = await tx.category.create({
+      const newCat = await prisma.category.create({
         data: { name: cat.name, icon: cat.icon, tenantId: cloneTenant.id, sortOrder: cat.sortOrder },
       })
       categoryIdMap[cat.id] = newCat.id
     }
 
     for (const product of master.products) {
-      await tx.product.create({
+      await prisma.product.create({
         data: {
           name: product.name,
           description: product.description,
@@ -97,7 +101,7 @@ export async function loginDemo() {
       })
     }
 
-    const demoUser = await tx.user.create({
+    const demoUser = await prisma.user.create({
       data: {
         name: masterUser.name,
         email: `demo-${stamp}@demo.pos`,
@@ -107,11 +111,18 @@ export async function loginDemo() {
         isActive: true,
       },
     })
+    demoUserId = demoUser.id
+  } catch {
+    if (demoTenantId) {
+      await prisma.product.deleteMany({ where: { tenantId: demoTenantId } }).catch(() => {})
+      await prisma.category.deleteMany({ where: { tenantId: demoTenantId } }).catch(() => {})
+      await prisma.user.deleteMany({ where: { tenantId: demoTenantId } }).catch(() => {})
+      await prisma.tenant.delete({ where: { id: demoTenantId } }).catch(() => {})
+    }
+    redirect('/login')
+  }
 
-    return { demoUserId: demoUser.id, demoTenantId: cloneTenant.id }
-  })
-
-  await createSession(demoUserId, demoTenantId, 'ADMIN', true)
+  await createSession(demoUserId!, demoTenantId!, 'ADMIN', true)
   redirect('/kasir')
 }
 
@@ -119,15 +130,15 @@ async function deleteDemoTenant(tenantId: string) {
   const orders = await prisma.order.findMany({ where: { tenantId }, select: { id: true } })
   const orderIds = orders.map((o) => o.id)
 
-  await prisma.$transaction([
-    prisma.payment.deleteMany({ where: { orderId: { in: orderIds } } }),
-    prisma.orderItem.deleteMany({ where: { orderId: { in: orderIds } } }),
-    prisma.order.deleteMany({ where: { tenantId } }),
-    prisma.product.deleteMany({ where: { tenantId } }),
-    prisma.category.deleteMany({ where: { tenantId } }),
-    prisma.user.deleteMany({ where: { tenantId } }),
-    prisma.tenant.delete({ where: { id: tenantId } }),
-  ])
+  if (orderIds.length > 0) {
+    await prisma.payment.deleteMany({ where: { orderId: { in: orderIds } } })
+    await prisma.orderItem.deleteMany({ where: { orderId: { in: orderIds } } })
+    await prisma.order.deleteMany({ where: { tenantId } })
+  }
+  await prisma.product.deleteMany({ where: { tenantId } })
+  await prisma.category.deleteMany({ where: { tenantId } })
+  await prisma.user.deleteMany({ where: { tenantId } })
+  await prisma.tenant.delete({ where: { id: tenantId } })
 }
 
 export async function logout() {
