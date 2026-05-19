@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import Image from 'next/image'
-import { AlertCircle, Loader2, FlaskConical } from 'lucide-react'
+import { AlertCircle, Loader2, FlaskConical, BookOpen, Instagram } from 'lucide-react'
 
 export function LoginForm() {
   const [state, action, pending] = useActionState(login, undefined)
@@ -139,25 +139,45 @@ export function LoginForm() {
           <p className="text-center text-sm text-zinc-500">
             Belum berlangganan?{' '}
             <a
-              href="https://www.instagram.com/digitalbnb"
+              href="https://digitalbnb.my.id"
               target="_blank"
               rel="noopener noreferrer"
               className="text-orange-400 hover:text-orange-300 font-medium transition-colors"
             >
-              Hubungi kami di Instagram @digitalbnb
+              digitalbnb.my.id
+            </a>
+            {' · '}
+            <a
+              href="https://www.instagram.com/digitalbnb"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-orange-400 hover:text-orange-300 font-medium transition-colors"
+            >
+              <Instagram size={13} />@digitalbnb
             </a>
           </p>
         </div>
       </motion.div>
 
-      <motion.p
+      <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ delay: 0.5 }}
-        className="text-center text-xs text-zinc-600 mt-6"
+        className="flex flex-col items-center gap-2 mt-6"
       >
-        © 2025 DigitalBnB POS. All rights reserved.
-      </motion.p>
+        <a
+          href="/manual-book/"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-1.5 text-xs text-zinc-500 hover:text-orange-400 transition-colors underline underline-offset-2"
+        >
+          <BookOpen className="w-3.5 h-3.5 flex-shrink-0" />
+          Buku Panduan Pengguna
+        </a>
+        <p className="text-center text-xs text-zinc-600">
+          © 2026 DigitalBnB POS. All rights reserved.
+        </p>
+      </motion.div>
     </motion.div>
   )
 }
