@@ -33,3 +33,150 @@ export const demoProducts = [
   { name: 'Teh Tarik',             description: 'Teh susu khas Malaysia yang creamy',                price: 20000, image: '/uploads/4c6800b0-e796-4ebe-9624-a3f3e2cc401f.jpg', stock: null, isActive: true,  categoryName: 'Non-Kopi' },
   { name: 'Vietnamese Drip',       description: 'Kopi drip ala Vietnam dengan susu kental',          price: 25000, image: '/uploads/0d9c98b5-1e39-429e-9b28-8a0b3ba2ad84.jpg', stock: null, isActive: false, categoryName: 'Kopi'     },
 ]
+
+export type DemoOrderItem = { productName: string; quantity: number }
+export type DemoOrderTemplate = {
+  type: 'DINE_IN' | 'TAKE_AWAY'
+  paymentMethod: 'CASH' | 'QRIS' | 'TRANSFER'
+  status: 'COMPLETED' | 'CANCELLED'
+  customerName?: string
+  tableNumber?: string
+  discount: number
+  daysAgo: number
+  hoursAgo: number
+  items: DemoOrderItem[]
+}
+
+export const demoOrders: DemoOrderTemplate[] = [
+  // ── Hari ini (menunjukkan dashboard aktif) ──────────────────────────────
+  {
+    type: 'DINE_IN', paymentMethod: 'CASH', status: 'COMPLETED',
+    customerName: 'Budi', tableNumber: '3', discount: 5000,
+    daysAgo: 0, hoursAgo: 2,
+    items: [{ productName: 'Kopi Susu', quantity: 2 }, { productName: 'Croissant', quantity: 1 }],
+  },
+  {
+    type: 'TAKE_AWAY', paymentMethod: 'QRIS', status: 'COMPLETED',
+    customerName: 'Siti', discount: 0,
+    daysAgo: 0, hoursAgo: 3,
+    items: [{ productName: 'Latte', quantity: 1 }, { productName: 'Banana Bread', quantity: 1 }],
+  },
+  {
+    type: 'DINE_IN', paymentMethod: 'TRANSFER', status: 'COMPLETED',
+    customerName: 'Pak Ahmad', tableNumber: 'VIP', discount: 0,
+    daysAgo: 0, hoursAgo: 4,
+    items: [
+      { productName: 'Cappuccino', quantity: 1 },
+      { productName: 'Matcha Latte', quantity: 1 },
+      { productName: 'Pasta Carbonara', quantity: 1 },
+    ],
+  },
+  {
+    type: 'TAKE_AWAY', paymentMethod: 'CASH', status: 'CANCELLED',
+    discount: 0, daysAgo: 0, hoursAgo: 5,
+    items: [{ productName: 'Americano', quantity: 1 }],
+  },
+
+  // ── Kemarin ────────────────────────────────────────────────────────────
+  {
+    type: 'DINE_IN', paymentMethod: 'CASH', status: 'COMPLETED',
+    tableNumber: '1', discount: 0, daysAgo: 1, hoursAgo: 2,
+    items: [
+      { productName: 'Espresso', quantity: 2 },
+      { productName: 'Cookies', quantity: 2 },
+      { productName: 'Brownies', quantity: 1 },
+    ],
+  },
+  {
+    type: 'TAKE_AWAY', paymentMethod: 'QRIS', status: 'COMPLETED',
+    customerName: 'Dewi', discount: 0, daysAgo: 1, hoursAgo: 4,
+    items: [{ productName: 'Caramel Macchiato', quantity: 1 }, { productName: 'Cheesecake Slice', quantity: 1 }],
+  },
+  {
+    type: 'DINE_IN', paymentMethod: 'CASH', status: 'COMPLETED',
+    tableNumber: '5', customerName: 'Reza', discount: 0, daysAgo: 1, hoursAgo: 5,
+    items: [{ productName: 'Cold Brew', quantity: 2 }, { productName: 'Muffin', quantity: 2 }],
+  },
+
+  // ── 2–3 hari lalu ──────────────────────────────────────────────────────
+  {
+    type: 'DINE_IN', paymentMethod: 'CASH', status: 'COMPLETED',
+    customerName: 'Rudi', tableNumber: '2', discount: 10000, daysAgo: 2, hoursAgo: 3,
+    items: [{ productName: 'Cold Brew', quantity: 1 }, { productName: 'Nasi Goreng Smoked Beef', quantity: 1 }],
+  },
+  {
+    type: 'TAKE_AWAY', paymentMethod: 'TRANSFER', status: 'COMPLETED',
+    customerName: 'Lisa', discount: 0, daysAgo: 3, hoursAgo: 2,
+    items: [{ productName: 'Strawberry Smoothie', quantity: 2 }, { productName: 'Muffin', quantity: 2 }],
+  },
+
+  // ── 5 hari lalu ────────────────────────────────────────────────────────
+  {
+    type: 'DINE_IN', paymentMethod: 'CASH', status: 'COMPLETED',
+    tableNumber: '5', discount: 0, daysAgo: 5, hoursAgo: 1,
+    items: [{ productName: 'Flat White', quantity: 1 }, { productName: 'Avocado Toast', quantity: 1 }],
+  },
+  {
+    type: 'TAKE_AWAY', paymentMethod: 'QRIS', status: 'COMPLETED',
+    customerName: 'Indah', discount: 0, daysAgo: 5, hoursAgo: 3,
+    items: [
+      { productName: 'Teh Tarik', quantity: 2 },
+      { productName: 'Chocolate', quantity: 1 },
+      { productName: 'Muffin', quantity: 1 },
+    ],
+  },
+
+  // ── 7–10 hari lalu ─────────────────────────────────────────────────────
+  {
+    type: 'DINE_IN', paymentMethod: 'CASH', status: 'COMPLETED',
+    customerName: 'Anto', tableNumber: '4', discount: 0, daysAgo: 7, hoursAgo: 2,
+    items: [{ productName: 'Mocha', quantity: 2 }, { productName: 'Avocado Toast', quantity: 1 }],
+  },
+  {
+    type: 'TAKE_AWAY', paymentMethod: 'CASH', status: 'COMPLETED',
+    customerName: 'Wati', discount: 0, daysAgo: 10, hoursAgo: 4,
+    items: [{ productName: 'Americano', quantity: 2 }, { productName: 'Cookies', quantity: 3 }],
+  },
+
+  // ── 15–20 hari lalu ────────────────────────────────────────────────────
+  {
+    type: 'DINE_IN', paymentMethod: 'QRIS', status: 'COMPLETED',
+    tableNumber: '3', discount: 0, daysAgo: 15, hoursAgo: 2,
+    items: [{ productName: 'Latte', quantity: 2 }, { productName: 'Banana Bread', quantity: 2 }],
+  },
+  {
+    type: 'TAKE_AWAY', paymentMethod: 'CASH', status: 'COMPLETED',
+    customerName: 'Farida', discount: 0, daysAgo: 20, hoursAgo: 3,
+    items: [{ productName: 'Matcha Latte', quantity: 1 }, { productName: 'Cheesecake Slice', quantity: 1 }],
+  },
+
+  // ── Bulan lalu (untuk perbandingan laporan bulanan) ────────────────────
+  {
+    type: 'DINE_IN', paymentMethod: 'CASH', status: 'COMPLETED',
+    tableNumber: '2', discount: 0, daysAgo: 35, hoursAgo: 1,
+    items: [
+      { productName: 'Cappuccino', quantity: 3 },
+      { productName: 'Croissant', quantity: 2 },
+      { productName: 'Muffin', quantity: 2 },
+    ],
+  },
+  {
+    type: 'TAKE_AWAY', paymentMethod: 'QRIS', status: 'COMPLETED',
+    customerName: 'Hendra', discount: 0, daysAgo: 40, hoursAgo: 2,
+    items: [{ productName: 'Caramel Macchiato', quantity: 1 }, { productName: 'Avocado Toast', quantity: 1 }],
+  },
+  {
+    type: 'DINE_IN', paymentMethod: 'TRANSFER', status: 'COMPLETED',
+    tableNumber: '1', discount: 15000, daysAgo: 50, hoursAgo: 3,
+    items: [
+      { productName: 'Cold Brew', quantity: 2 },
+      { productName: 'Flat White', quantity: 1 },
+      { productName: 'Cookies', quantity: 3 },
+    ],
+  },
+  {
+    type: 'TAKE_AWAY', paymentMethod: 'CASH', status: 'COMPLETED',
+    discount: 0, daysAgo: 60, hoursAgo: 2,
+    items: [{ productName: 'Kopi Susu', quantity: 3 }, { productName: 'Croissant', quantity: 2 }],
+  },
+]

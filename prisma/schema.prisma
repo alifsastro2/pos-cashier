@@ -23,6 +23,9 @@ model Tenant {
   isActive     Boolean  @default(true)
   setupDone    Boolean  @default(false)
   isDemoTenant Boolean  @default(false)
+  midtransServerKey    String?
+  midtransClientKey    String?
+  midtransIsProduction Boolean @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

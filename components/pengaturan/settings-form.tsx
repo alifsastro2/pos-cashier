@@ -2,8 +2,8 @@
 
 import { useState, useTransition, useRef, useCallback } from 'react'
 import { motion } from 'motion/react'
-import { Store, Lock, Check, AlertCircle, ImageIcon, Palette, Plus } from 'lucide-react'
-import { updateSettings, updatePassword, updateUserTheme, updateAccentColor } from '@/app/actions/settings'
+import { Store, Lock, Check, AlertCircle, ImageIcon, Palette, Plus, CreditCard, Eye, EyeOff } from 'lucide-react'
+import { updateSettings, updatePassword, updateUserTheme, updateAccentColor, updateMidtransSettings } from '@/app/actions/settings'
 import { ImageUpload } from '@/components/ui/image-upload'
 import { ACCENT_PRESETS, THEME_BG, buildThemeVars, type ThemeMode } from '@/lib/utils/color'
 
@@ -18,11 +18,15 @@ type Tenant = {
   taxRate: number
   accentColor: string | null
   theme: string | null
+  midtransHasServerKey: boolean
+  midtransHasClientKey: boolean
+  midtransIsProduction: boolean
 }
 
 interface SettingsFormProps {
   tenant: Tenant
   role: string
+  isDemo: boolean
   userTheme: string | null
 }
 
@@ -57,7 +61,7 @@ function Field({ label, required, children }: { label: string; required?: boolea
 
 const inputClass = "w-full h-10 px-3 rounded-xl bg-zinc-100 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 text-zinc-900 dark:text-white text-sm placeholder:text-zinc-400 dark:placeholder:text-zinc-500 focus:outline-none focus:border-orange-500 transition-colors"
 
-export function SettingsForm({ tenant, role, userTheme }: SettingsFormProps) {
+export function SettingsForm({ tenant, role, isDemo, userTheme }: SettingsFormProps) {
   const isAdmin = role === 'ADMIN'
   const [, startAppearanceTransition] = useTransition()
   const [appearanceSaved, setAppearanceSaved] = useState(false)
@@ -86,8 +90,13 @@ export function SettingsForm({ tenant, role, userTheme }: SettingsFormProps) {
   }, [showSaved])
   const [settingsPending, startSettingsTransition] = useTransition()
   const [passwordPending, startPasswordTransition] = useTransition()
+  const [midtransPending, startMidtransTransition] = useTransition()
   const [settingsMsg, setSettingsMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [passwordMsg, setPasswordMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [midtransMsg, setMidtransMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [midtransIsProduction, setMidtransIsProduction] = useState(tenant.midtransIsProduction)
+  const [showServerKey, setShowServerKey] = useState(false)
+  const [showClientKey, setShowClientKey] = useState(false)
   const [logoUrl, setLogoUrl] = useState<string | null>(tenant.logo ?? null)
   const [themeMode, setThemeMode] = useState<ThemeMode>(((userTheme ?? tenant.theme) as ThemeMode) ?? 'dark')
   const [accentColor, setAccentColor] = useState(tenant.accentColor ?? '#f97316')
@@ -147,6 +156,22 @@ export function SettingsForm({ tenant, role, userTheme }: SettingsFormProps) {
         setPasswordMsg({ type: 'error', text: result.error })
       } else {
         setPasswordMsg({ type: 'success', text: 'Password berhasil diubah!' })
+        ;(e.target as HTMLFormElement).reset()
+      }
+    })
+  }
+
+  function handleMidtrans(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    setMidtransMsg(null)
+    const fd = new FormData(e.currentTarget)
+    fd.set('midtransIsProduction', midtransIsProduction ? 'true' : 'false')
+    startMidtransTransition(async () => {
+      const result = await updateMidtransSettings(fd)
+      if (result?.error) {
+        setMidtransMsg({ type: 'error', text: result.error })
+      } else {
+        setMidtransMsg({ type: 'success', text: 'Pengaturan payment gateway berhasil disimpan!' })
         ;(e.target as HTMLFormElement).reset()
       }
     })
@@ -401,6 +426,118 @@ export function SettingsForm({ tenant, role, userTheme }: SettingsFormProps) {
           </div>
         </form>
       </Section>}
+
+      {/* Midtrans Payment Gateway — admin only, not demo */}
+      {isAdmin && !isDemo && (
+        <Section title="Payment Gateway (Midtrans)" icon={CreditCard}>
+          <form onSubmit={handleMidtrans} className="space-y-4">
+            <div className="flex items-start gap-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20">
+              <AlertCircle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+              <p className="text-xs text-amber-700 dark:text-amber-400 leading-relaxed">
+                Server Key bersifat rahasia. Jangan bagikan kepada siapapun. Daftarkan akun di{' '}
+                <a href="https://dashboard.midtrans.com" target="_blank" rel="noopener noreferrer" className="underline">
+                  dashboard.midtrans.com
+                </a>{' '}
+                untuk mendapatkan key Anda.
+              </p>
+            </div>
+
+            {midtransMsg && (
+              <motion.div
+                initial={{ opacity: 0, y: -4 }}
+                animate={{ opacity: 1, y: 0 }}
+                className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm ${
+                  midtransMsg.type === 'success'
+                    ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400'
+                    : 'bg-red-500/10 border border-red-500/20 text-red-400'
+                }`}
+              >
+                {midtransMsg.type === 'success' ? <Check className="w-4 h-4 shrink-0" /> : <AlertCircle className="w-4 h-4 shrink-0" />}
+                {midtransMsg.text}
+              </motion.div>
+            )}
+
+            <Field label="Server Key">
+              <div className="relative">
+                <input
+                  name="midtransServerKey"
+                  type={showServerKey ? 'text' : 'password'}
+                  autoComplete="off"
+                  className={inputClass + ' pr-10'}
+                  placeholder={tenant.midtransHasServerKey ? '••••••• (sudah tersimpan)' : 'Mid-server-xxxxxx...'}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowServerKey(v => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
+                >
+                  {showServerKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+              <p className="text-xs text-zinc-400 dark:text-zinc-600 mt-1">Kosongkan untuk mempertahankan key yang sudah tersimpan.</p>
+            </Field>
+
+            <Field label="Client Key">
+              <div className="relative">
+                <input
+                  name="midtransClientKey"
+                  type={showClientKey ? 'text' : 'password'}
+                  autoComplete="off"
+                  className={inputClass + ' pr-10'}
+                  placeholder={tenant.midtransHasClientKey ? '••••••• (sudah tersimpan)' : 'Mid-client-xxxxxx...'}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowClientKey(v => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
+                >
+                  {showClientKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+            </Field>
+
+            <Field label="Mode">
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setMidtransIsProduction(false)}
+                  className={`flex-1 h-10 rounded-xl text-sm font-medium transition-colors ${
+                    !midtransIsProduction
+                      ? 'bg-orange-500 text-black'
+                      : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700'
+                  }`}
+                >
+                  Sandbox (Testing)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMidtransIsProduction(true)}
+                  className={`flex-1 h-10 rounded-xl text-sm font-medium transition-colors ${
+                    midtransIsProduction
+                      ? 'bg-green-600 text-white'
+                      : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700'
+                  }`}
+                >
+                  Production (Live)
+                </button>
+              </div>
+              {midtransIsProduction && (
+                <p className="text-xs text-amber-500 mt-1">Mode Production akan memproses transaksi nyata.</p>
+              )}
+            </Field>
+
+            <div className="flex justify-end pt-2">
+              <button
+                type="submit"
+                disabled={midtransPending}
+                className="h-9 px-5 rounded-xl bg-orange-500 text-black text-sm font-semibold hover:bg-orange-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {midtransPending ? 'Menyimpan...' : 'Simpan Pengaturan Gateway'}
+              </button>
+            </div>
+          </form>
+        </Section>
+      )}
 
       {/* Change Password */}
       <Section title="Ubah Password" icon={Lock}>

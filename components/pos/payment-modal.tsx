@@ -1,8 +1,8 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useState, useTransition, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
-import { X, CheckCircle2, Loader2, User, Printer } from 'lucide-react'
+import { X, CheckCircle2, Loader2, User, Printer, Copy, QrCode } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { toast } from 'sonner'
@@ -33,7 +33,28 @@ type Props = {
   taxRate: number
 }
 
-const PAYMENT_METHODS: PaymentMethod[] = ['CASH', 'QRIS', 'TRANSFER', 'GOPAY', 'SHOPEEPAY']
+type ChargeResult = {
+  transactionId: string
+  orderId: string
+  qrCodeUrl?: string
+  midtransQrUrl?: string
+  vaNumber?: string
+  bank?: string
+  expiresAt?: string
+}
+
+type PaymentPhase = 'init' | 'charging' | 'waiting' | 'expired'
+
+const PAYMENT_METHODS: PaymentMethod[] = ['CASH', 'QRIS', 'TRANSFER']
+
+const BANK_OPTIONS = [
+  { value: 'bni', label: 'BNI' },
+  { value: 'bri', label: 'BRI' },
+  { value: 'permata', label: 'Permata' },
+  { value: 'cimb', label: 'CIMB' },
+] as const
+
+type BankValue = (typeof BANK_OPTIONS)[number]['value']
 
 const MONTHS_ID = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember']
 
@@ -50,7 +71,7 @@ type OrderResult = {
 
 type PrintStep = 'receipt' | 'queue' | null
 
-// ─── Paper preview helpers ──────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function Dashes() {
   return <div className="border-t border-dashed border-zinc-300 my-1.5" />
@@ -71,7 +92,19 @@ function PaperRow({
 
 function rp(n: number) { return n.toLocaleString('id-ID') }
 
-// ─── Component ──────────────────────────────────────────────────────────────
+function formatCountdown(seconds: number) {
+  const m = Math.floor(seconds / 60)
+  const s = seconds % 60
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+}
+
+function parseExpiryTime(timeStr: string): Date {
+  if (timeStr.includes('T')) return new Date(timeStr)
+  // Midtrans returns "YYYY-MM-DD HH:mm:ss" in WIB (UTC+7)
+  return new Date(timeStr.replace(' ', 'T') + '+07:00')
+}
+
+// ─── Component ────────────────────────────────────────────────────────────────
 
 export function PaymentModal({
   open, onClose, onSuccess,
@@ -86,7 +119,17 @@ export function PaymentModal({
   const [showConfirm, setShowConfirm]   = useState(false)
   const [isPending, startTransition]    = useTransition()
 
+  // Midtrans state
+  const [selectedBank, setSelectedBank] = useState<BankValue>('bni')
+  const [paymentPhase, setPaymentPhase] = useState<PaymentPhase>('init')
+  const [chargeResult, setChargeResult] = useState<ChargeResult | null>(null)
+  const [midtransOrderId, setMidtransOrderId] = useState('')
+  const [isCharging, setIsCharging] = useState(false)
+  const [countdown, setCountdown] = useState(0)
+  const [chargeError, setChargeError] = useState<string | null>(null)
+
   const isDineIn = orderType === 'DINE_IN'
+  const isMidtransMethod = method === 'QRIS' || method === 'TRANSFER'
 
   const cashAmount  = parseFloat(cashReceived.replace(/\D/g, '')) || 0
   const change      = Math.max(0, cashAmount - total)
@@ -97,6 +140,109 @@ export function PaymentModal({
   const timeStr    = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`
   const orderLabel = ORDER_TYPE_LABELS[orderType as OrderType] ?? orderType
   const methodLabel = PML[method as PaymentMethod] ?? method
+
+  // Keep createOrder args fresh without re-subscribing the polling effect
+  const confirmPaymentRef = useRef<((txId: string) => void) | null>(null)
+  confirmPaymentRef.current = (midtransTxId: string) => {
+    startTransition(async () => {
+      try {
+        const result = await createOrder({
+          cart, orderType, paymentMethod: method,
+          subtotal, taxAmount, discount, total,
+          notes, customerName,
+          tableNumber: isDineIn ? tableNumber.trim() || undefined : undefined,
+          midtransTransactionId: midtransTxId || undefined,
+          midtransGatewayOrderId: midtransOrderId || undefined,
+        })
+        setOrder(result as unknown as OrderResult)
+        setPrintStep('receipt')
+        setPaymentPhase('init')
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Terjadi kesalahan'
+        toast.error(msg, { duration: 5000 })
+        setPaymentPhase('expired')
+      }
+    })
+  }
+
+  // Countdown timer
+  useEffect(() => {
+    if (paymentPhase !== 'waiting' || !chargeResult?.expiresAt) return
+    const expiry = parseExpiryTime(chargeResult.expiresAt).getTime()
+    const tick = () => {
+      const remaining = Math.max(0, Math.floor((expiry - Date.now()) / 1000))
+      setCountdown(remaining)
+      if (remaining === 0) setPaymentPhase('expired')
+    }
+    tick()
+    const id = setInterval(tick, 1000)
+    return () => clearInterval(id)
+  }, [paymentPhase, chargeResult?.expiresAt])
+
+  // Midtrans payment polling
+  useEffect(() => {
+    if (paymentPhase !== 'waiting' || !midtransOrderId) return
+    let active = true
+
+    const poll = async () => {
+      if (!active) return
+      try {
+        const res = await fetch(`/api/payment/status/${encodeURIComponent(midtransOrderId)}`)
+        const data = await res.json()
+        if (!active) return
+        const status = data.transactionStatus as string
+        if (status === 'settlement' || status === 'capture') {
+          active = false
+          confirmPaymentRef.current?.(chargeResult?.transactionId ?? '')
+        } else if (['expire', 'cancel', 'deny', 'failure'].includes(status)) {
+          setPaymentPhase('expired')
+        }
+      } catch { /* network error — keep polling */ }
+    }
+
+    poll()
+    const interval = setInterval(poll, method === 'TRANSFER' ? 8000 : 3000)
+    return () => { active = false; clearInterval(interval) }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paymentPhase, midtransOrderId])
+
+  async function handleCharge() {
+    const tempId = `POS-${Date.now()}-${Math.floor(Math.random() * 1e6)}`
+    setMidtransOrderId(tempId)
+    setChargeError(null)
+    setIsCharging(true)
+    try {
+      const res = await fetch('/api/payment/create-charge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          paymentType: method,
+          bank: method === 'TRANSFER' ? selectedBank : undefined,
+          amount: total,
+          orderId: tempId,
+          customerName: customerName || 'Pelanggan',
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Gagal membuat charge')
+      setChargeResult(data as ChargeResult)
+      setPaymentPhase('waiting')
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Gagal menghubungi payment gateway'
+      setChargeError(msg)
+      toast.error(msg)
+      setMidtransOrderId('')
+    } finally {
+      setIsCharging(false)
+    }
+  }
+
+  function resetMidtrans() {
+    setPaymentPhase('init')
+    setChargeResult(null)
+    setMidtransOrderId('')
+    setChargeError(null)
+  }
 
   function getPrintData(): PrintReceiptsInput | null {
     if (!order) return null
@@ -122,7 +268,13 @@ export function PaymentModal({
     setCashReceived('')
     setTableNumber('')
     setMethod('CASH')
+    resetMidtrans()
     onClose()
+  }
+
+  function handleMethodChange(m: PaymentMethod) {
+    setMethod(m)
+    resetMidtrans()
   }
 
   function handleConfirm() {
@@ -296,31 +448,35 @@ export function PaymentModal({
                   </button>
                 </div>
 
-                <div className="p-5 space-y-5">
+                <div className="p-5 space-y-4">
                   <div className="bg-orange-500/10 border border-orange-500/20 rounded-xl p-4 text-center">
                     <p className="text-zinc-500 dark:text-zinc-400 text-sm">Total Pembayaran</p>
                     <p className="text-3xl font-bold text-orange-500 dark:text-orange-400 mt-1">{formatRupiah(total)}</p>
                   </div>
 
-                  <div>
-                    <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-2 font-medium">Metode Pembayaran</p>
-                    <div className="grid grid-cols-3 gap-2">
-                      {PAYMENT_METHODS.map((m) => (
-                        <button
-                          key={m}
-                          onClick={() => setMethod(m)}
-                          className={`py-2 px-3 rounded-lg text-sm font-medium transition-colors ${
-                            method === m
-                              ? 'bg-orange-500 text-black'
-                              : 'bg-zinc-100 dark:bg-white/5 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-white/10'
-                          }`}
-                        >
-                          {PML[m]}
-                        </button>
-                      ))}
+                  {/* Payment method picker — hidden while waiting */}
+                  {paymentPhase !== 'waiting' && (
+                    <div>
+                      <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-2 font-medium">Metode Pembayaran</p>
+                      <div className="grid grid-cols-3 gap-2">
+                        {PAYMENT_METHODS.map((m) => (
+                          <button
+                            key={m}
+                            onClick={() => handleMethodChange(m)}
+                            className={`py-2 px-3 rounded-lg text-sm font-medium transition-colors ${
+                              method === m
+                                ? 'bg-orange-500 text-black'
+                                : 'bg-zinc-100 dark:bg-white/5 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-white/10'
+                            }`}
+                          >
+                            {PML[m]}
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                  </div>
+                  )}
 
+                  {/* CASH: amount input */}
                   {method === 'CASH' && (
                     <div>
                       <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-2 font-medium">Jumlah Uang Diterima</p>
@@ -343,14 +499,208 @@ export function PaymentModal({
                     </div>
                   )}
 
+                  {/* QRIS: QR code flow */}
                   {method === 'QRIS' && (
-                    <div className="bg-zinc-100 dark:bg-white/5 rounded-xl p-8 text-center border border-dashed border-zinc-300 dark:border-white/20">
-                      <p className="text-zinc-500 dark:text-zinc-400 text-sm">QR Code akan ditampilkan setelah integrasi payment gateway</p>
-                      <p className="text-orange-500 dark:text-orange-400 text-xs mt-1">Powered by Louvin.dev & Midtrans</p>
+                    <div className="rounded-xl border border-zinc-200 dark:border-white/10 overflow-hidden">
+
+                      {/* ── Init ── */}
+                      {paymentPhase === 'init' && (
+                        <div className="p-6 flex flex-col items-center gap-3 text-center">
+                          <div className="w-14 h-14 rounded-2xl bg-orange-500/10 border border-orange-500/20 flex items-center justify-center">
+                            <QrCode className="w-7 h-7 text-orange-500" />
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200">Pembayaran QRIS</p>
+                            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+                              Klik tombol di bawah untuk membuat QR Code
+                            </p>
+                          </div>
+                          {chargeError && (
+                            <p className="w-full text-xs text-red-500 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">{chargeError}</p>
+                          )}
+                          <p className="text-[10px] text-zinc-400 dark:text-zinc-600">Powered by Midtrans</p>
+                        </div>
+                      )}
+
+                      {/* ── Charging ── */}
+                      {paymentPhase === 'charging' && (
+                        <div className="flex flex-col items-center justify-center gap-3 p-10">
+                          <Loader2 className="w-8 h-8 animate-spin text-orange-500" />
+                          <p className="text-xs text-zinc-500 dark:text-zinc-400">Membuat QR Code...</p>
+                        </div>
+                      )}
+
+                      {/* ── Waiting ── */}
+                      {paymentPhase === 'waiting' && chargeResult?.qrCodeUrl && (
+                        <>
+                          {/* Orange header */}
+                          <div className="bg-orange-500 px-4 py-3 flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <QrCode className="w-4 h-4 text-black" />
+                              <span className="text-sm font-bold text-black">Scan QRIS untuk Bayar</span>
+                            </div>
+                            {countdown > 0 && (
+                              <span className="font-mono text-sm font-bold text-black/80 bg-black/10 px-2 py-0.5 rounded-md tabular-nums">
+                                {formatCountdown(countdown)}
+                              </span>
+                            )}
+                          </div>
+
+                          {/* QR Code — white bg, no border-radius on image */}
+                          <div className="bg-white flex justify-center items-center py-6 px-8">
+                            {isPending ? (
+                              <div className="flex flex-col items-center gap-3 py-8">
+                                <Loader2 className="w-8 h-8 animate-spin text-orange-500" />
+                                <p className="text-sm text-zinc-500">Memproses pesanan...</p>
+                              </div>
+                            ) : (
+                              <img
+                                src={chargeResult.qrCodeUrl}
+                                alt="QR Code Pembayaran"
+                                className="w-52 h-52 block"
+                              />
+                            )}
+                          </div>
+
+                          {/* Info footer */}
+                          <div className="bg-zinc-50 dark:bg-zinc-800/80 border-t border-zinc-200 dark:border-white/8 px-4 py-3 space-y-2">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs text-zinc-500 dark:text-zinc-400">Total Bayar</span>
+                              <span className="text-sm font-bold text-zinc-900 dark:text-white">{formatRupiah(total)}</span>
+                            </div>
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-xs text-zinc-500 dark:text-zinc-400 shrink-0">Order ID</span>
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <span className="font-mono text-[11px] text-zinc-600 dark:text-zinc-400 truncate">{midtransOrderId}</span>
+                                <button
+                                  onClick={() => { navigator.clipboard.writeText(midtransOrderId); toast.success('Order ID disalin!') }}
+                                  className="shrink-0 text-orange-500 hover:text-orange-600 transition-colors"
+                                >
+                                  <Copy className="w-3 h-3" />
+                                </button>
+                              </div>
+                            </div>
+                            {chargeResult.midtransQrUrl && (
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-xs text-zinc-500 dark:text-zinc-400 shrink-0">URL Simulator</span>
+                                <button
+                                  onClick={() => { navigator.clipboard.writeText(chargeResult.midtransQrUrl!); toast.success('URL disalin!') }}
+                                  className="flex items-center gap-1 text-orange-500 hover:text-orange-600 transition-colors text-[11px] font-medium"
+                                >
+                                  <Copy className="w-3 h-3" /> Salin URL
+                                </button>
+                              </div>
+                            )}
+                            <div className="flex items-center justify-center gap-2 text-[11px] text-zinc-400 dark:text-zinc-500 pt-1.5 border-t border-zinc-200 dark:border-white/8">
+                              <Loader2 className="w-3 h-3 animate-spin shrink-0" />
+                              GoPay · OVO · Dana · DANA · m-Banking
+                            </div>
+                          </div>
+                        </>
+                      )}
+
+                      {/* ── Expired ── */}
+                      {paymentPhase === 'expired' && (
+                        <div className="p-6 flex flex-col items-center gap-3 text-center">
+                          <div className="w-12 h-12 rounded-full bg-red-500/10 border border-red-500/20 flex items-center justify-center">
+                            <X className="w-5 h-5 text-red-500" />
+                          </div>
+                          <div>
+                            <p className="text-sm font-semibold text-red-500">QR Code Kadaluarsa</p>
+                            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">Buat QR Code baru untuk melanjutkan</p>
+                          </div>
+                          {chargeError && (
+                            <p className="w-full text-xs text-red-500 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">{chargeError}</p>
+                          )}
+                        </div>
+                      )}
                     </div>
                   )}
 
-                  {isDineIn && (
+                  {/* TRANSFER: bank picker + VA display */}
+                  {method === 'TRANSFER' && (
+                    <div className="space-y-3">
+                      {(paymentPhase === 'init' || paymentPhase === 'expired') && (
+                        <>
+                          <div>
+                            <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-2 font-medium">Pilih Bank</p>
+                            <div className="grid grid-cols-4 gap-2">
+                              {BANK_OPTIONS.map((b) => (
+                                <button
+                                  key={b.value}
+                                  onClick={() => setSelectedBank(b.value)}
+                                  className={`py-2 rounded-lg text-sm font-semibold transition-colors ${
+                                    selectedBank === b.value
+                                      ? 'bg-orange-500 text-black'
+                                      : 'bg-zinc-100 dark:bg-white/5 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-white/10'
+                                  }`}
+                                >
+                                  {b.label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                          {paymentPhase === 'expired' && (
+                            <p className="text-xs text-red-500 text-center">Nomor VA sudah kadaluarsa. Buat VA baru.</p>
+                          )}
+                          {chargeError && (
+                            <p className="text-xs text-red-500 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2 text-center">{chargeError}</p>
+                          )}
+                        </>
+                      )}
+                      {paymentPhase === 'charging' && (
+                        <div className="flex justify-center p-8">
+                          <Loader2 className="w-8 h-8 animate-spin text-orange-500" />
+                        </div>
+                      )}
+                      {paymentPhase === 'waiting' && chargeResult?.vaNumber && (
+                        <div className="bg-zinc-50 dark:bg-white/5 rounded-xl border border-zinc-200 dark:border-white/10 p-4 space-y-3">
+                          <div className="flex justify-between items-center text-sm">
+                            <span className="text-zinc-500 dark:text-zinc-400">Bank</span>
+                            <span className="font-bold text-zinc-900 dark:text-white uppercase">
+                              {chargeResult.bank}
+                            </span>
+                          </div>
+                          <div>
+                            <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-1">Nomor Virtual Account</p>
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono text-lg font-bold text-zinc-900 dark:text-white tracking-wider flex-1">
+                                {chargeResult.vaNumber}
+                              </span>
+                              <button
+                                onClick={() => {
+                                  navigator.clipboard.writeText(chargeResult.vaNumber!)
+                                  toast.success('Nomor VA disalin!')
+                                }}
+                                className="text-orange-500 hover:text-orange-600 transition-colors"
+                                title="Salin"
+                              >
+                                <Copy className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+                          <div className="flex justify-between items-center text-sm border-t border-zinc-200 dark:border-white/10 pt-3">
+                            <span className="text-zinc-500 dark:text-zinc-400">Total Bayar</span>
+                            <span className="font-bold text-zinc-900 dark:text-white">{formatRupiah(total)}</span>
+                          </div>
+                          {isPending ? (
+                            <div className="flex items-center justify-center gap-2 text-sm text-zinc-400 pt-1">
+                              <Loader2 className="w-4 h-4 animate-spin text-orange-500" />
+                              Memproses pesanan...
+                            </div>
+                          ) : (
+                            <div className="flex items-center justify-center gap-2 text-xs text-zinc-400 dark:text-zinc-500 pt-1">
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                              Menunggu konfirmasi pembayaran...
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Table number — hidden while waiting for payment */}
+                  {isDineIn && paymentPhase !== 'waiting' && (
                     <div>
                       <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-2 font-medium">
                         Nomor Meja <span className="text-zinc-400 dark:text-zinc-500 font-normal text-xs">(opsional)</span>
@@ -365,18 +715,55 @@ export function PaymentModal({
                     </div>
                   )}
 
-                  <Button
-                    onClick={() => setShowConfirm(true)}
-                    disabled={!canConfirm || isPending}
-                    className="w-full h-11 bg-orange-500 hover:bg-orange-600 text-black font-semibold rounded-xl"
-                  >
-                    {isPending ? (
-                      <span className="flex items-center gap-2">
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        Memproses...
-                      </span>
-                    ) : `Konfirmasi Bayar ${formatRupiah(total)}`}
-                  </Button>
+                  {/* Bottom action buttons */}
+                  {!isMidtransMethod && (
+                    <Button
+                      onClick={() => setShowConfirm(true)}
+                      disabled={!canConfirm || isPending}
+                      className="w-full h-11 bg-orange-500 hover:bg-orange-600 text-black font-semibold rounded-xl"
+                    >
+                      {isPending ? (
+                        <span className="flex items-center gap-2">
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Memproses...
+                        </span>
+                      ) : `Konfirmasi Bayar ${formatRupiah(total)}`}
+                    </Button>
+                  )}
+
+                  {isMidtransMethod && (paymentPhase === 'init' || paymentPhase === 'expired') && (
+                    <Button
+                      onClick={handleCharge}
+                      disabled={isCharging}
+                      className="w-full h-11 bg-orange-500 hover:bg-orange-600 text-black font-semibold rounded-xl"
+                    >
+                      {isCharging ? (
+                        <span className="flex items-center gap-2">
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Memuat...
+                        </span>
+                      ) : method === 'QRIS'
+                        ? (paymentPhase === 'expired' ? 'Buat QR Baru' : 'Buat QR Code')
+                        : (paymentPhase === 'expired' ? 'Dapatkan VA Baru' : 'Dapatkan Nomor VA')}
+                    </Button>
+                  )}
+
+                  {isMidtransMethod && paymentPhase === 'charging' && (
+                    <Button disabled className="w-full h-11 rounded-xl">
+                      <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                      Menghubungi payment gateway...
+                    </Button>
+                  )}
+
+                  {isMidtransMethod && paymentPhase === 'waiting' && !isPending && (
+                    <Button
+                      variant="outline"
+                      onClick={resetMidtrans}
+                      className="w-full h-11 rounded-xl text-zinc-600 dark:text-zinc-400"
+                    >
+                      Batalkan
+                    </Button>
+                  )}
                 </div>
               </>
             )}
@@ -517,81 +904,81 @@ export function PaymentModal({
 
     </AnimatePresence>
 
-    {/* ── Confirm dialog ── */}
+    {/* ── Confirm dialog (CASH only) ── */}
     <AnimatePresence>
-        {showConfirm && (
+      {showConfirm && (
+        <motion.div
+          key="confirm-dialog"
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+          onClick={() => setShowConfirm(false)}
+        >
           <motion.div
-            key="confirm-dialog"
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
-            onClick={() => setShowConfirm(false)}
+            initial={{ scale: 0.93, y: 12 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.93, y: 12 }}
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl w-full max-w-sm p-6"
           >
-            <motion.div
-              initial={{ scale: 0.93, y: 12 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.93, y: 12 }}
-              onClick={(e) => e.stopPropagation()}
-              className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl w-full max-w-sm p-6"
-            >
-              <h3 className="text-base font-bold text-zinc-900 dark:text-white mb-4 text-center">
-                Konfirmasi Transaksi
-              </h3>
-              <div className="bg-orange-500/10 border border-orange-500/20 rounded-xl p-4 text-center mb-4">
-                <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-1">Total Pembayaran</p>
-                <p className="text-3xl font-bold text-orange-500 dark:text-orange-400">{formatRupiah(total)}</p>
+            <h3 className="text-base font-bold text-zinc-900 dark:text-white mb-4 text-center">
+              Konfirmasi Transaksi
+            </h3>
+            <div className="bg-orange-500/10 border border-orange-500/20 rounded-xl p-4 text-center mb-4">
+              <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-1">Total Pembayaran</p>
+              <p className="text-3xl font-bold text-orange-500 dark:text-orange-400">{formatRupiah(total)}</p>
+            </div>
+            <div className="space-y-2 mb-5 text-sm">
+              <div className="flex justify-between">
+                <span className="text-zinc-500 dark:text-zinc-400">Metode</span>
+                <span className="font-semibold text-zinc-900 dark:text-white">{methodLabel}</span>
               </div>
-              <div className="space-y-2 mb-5 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-zinc-500 dark:text-zinc-400">Metode</span>
-                  <span className="font-semibold text-zinc-900 dark:text-white">{methodLabel}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-zinc-500 dark:text-zinc-400">Tipe Pesanan</span>
-                  <span className="font-semibold text-zinc-900 dark:text-white">{orderLabel}</span>
-                </div>
-                {method === 'CASH' && cashAmount > 0 && (
-                  <>
-                    <div className="flex justify-between">
-                      <span className="text-zinc-500 dark:text-zinc-400">Uang Diterima</span>
-                      <span className="font-semibold text-zinc-900 dark:text-white">{formatRupiah(cashAmount)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-zinc-500 dark:text-zinc-400">Kembalian</span>
-                      <span className="font-semibold text-green-500">{formatRupiah(change)}</span>
-                    </div>
-                  </>
-                )}
-                {customerName && (
+              <div className="flex justify-between">
+                <span className="text-zinc-500 dark:text-zinc-400">Tipe Pesanan</span>
+                <span className="font-semibold text-zinc-900 dark:text-white">{orderLabel}</span>
+              </div>
+              {method === 'CASH' && cashAmount > 0 && (
+                <>
                   <div className="flex justify-between">
-                    <span className="text-zinc-500 dark:text-zinc-400">Pelanggan</span>
-                    <span className="font-semibold text-zinc-900 dark:text-white">{customerName}</span>
+                    <span className="text-zinc-500 dark:text-zinc-400">Uang Diterima</span>
+                    <span className="font-semibold text-zinc-900 dark:text-white">{formatRupiah(cashAmount)}</span>
                   </div>
-                )}
-                {isDineIn && tableNumber && (
                   <div className="flex justify-between">
-                    <span className="text-zinc-500 dark:text-zinc-400">No. Meja</span>
-                    <span className="font-semibold text-zinc-900 dark:text-white">{tableNumber}</span>
+                    <span className="text-zinc-500 dark:text-zinc-400">Kembalian</span>
+                    <span className="font-semibold text-green-500">{formatRupiah(change)}</span>
                   </div>
-                )}
-              </div>
-              <div className="flex gap-3">
-                <Button variant="outline" className="flex-1" onClick={() => setShowConfirm(false)}>
-                  Kembali
-                </Button>
-                <Button
-                  className="flex-1 bg-orange-500 hover:bg-orange-600 text-black font-semibold"
-                  disabled={isPending}
-                  onClick={() => { setShowConfirm(false); handleConfirm() }}
-                >
-                  {isPending ? (
-                    <span className="flex items-center gap-2">
-                      <Loader2 className="w-4 h-4 animate-spin" /> Memproses...
-                    </span>
-                  ) : 'Proses Pembayaran'}
-                </Button>
-              </div>
-            </motion.div>
+                </>
+              )}
+              {customerName && (
+                <div className="flex justify-between">
+                  <span className="text-zinc-500 dark:text-zinc-400">Pelanggan</span>
+                  <span className="font-semibold text-zinc-900 dark:text-white">{customerName}</span>
+                </div>
+              )}
+              {isDineIn && tableNumber && (
+                <div className="flex justify-between">
+                  <span className="text-zinc-500 dark:text-zinc-400">No. Meja</span>
+                  <span className="font-semibold text-zinc-900 dark:text-white">{tableNumber}</span>
+                </div>
+              )}
+            </div>
+            <div className="flex gap-3">
+              <Button variant="outline" className="flex-1" onClick={() => setShowConfirm(false)}>
+                Kembali
+              </Button>
+              <Button
+                className="flex-1 bg-orange-500 hover:bg-orange-600 text-black font-semibold"
+                disabled={isPending}
+                onClick={() => { setShowConfirm(false); handleConfirm() }}
+              >
+                {isPending ? (
+                  <span className="flex items-center gap-2">
+                    <Loader2 className="w-4 h-4 animate-spin" /> Memproses...
+                  </span>
+                ) : 'Proses Pembayaran'}
+              </Button>
+            </div>
           </motion.div>
-        )}
-      </AnimatePresence>
+        </motion.div>
+      )}
+    </AnimatePresence>
     </>
   )
 }

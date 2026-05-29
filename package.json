@@ -24,6 +24,7 @@
     "dotenv": "^17.4.2",
     "jose": "^6.2.3",
     "lucide-react": "^1.16.0",
+    "midtrans-client": "^1.4.3",
     "motion": "^12.38.0",
     "next": "16.2.6",
     "next-auth": "^4.24.14",

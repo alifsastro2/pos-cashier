@@ -67,6 +67,24 @@ export async function updateAccentColor(accentColor: string) {
   return { success: true }
 }
 
+export async function updateMidtransSettings(formData: FormData) {
+  const session = await verifySession()
+  if (session.role !== 'ADMIN') return { error: 'Tidak diizinkan' }
+  if (session.isDemo) return { error: 'Pengaturan payment gateway tidak dapat diubah di mode demo' }
+
+  const serverKey = (formData.get('midtransServerKey') as string)?.trim()
+  const clientKey = (formData.get('midtransClientKey') as string)?.trim()
+  const isProduction = formData.get('midtransIsProduction') === 'true'
+
+  const data: Record<string, unknown> = { midtransIsProduction: isProduction }
+  if (serverKey) data.midtransServerKey = serverKey
+  if (clientKey) data.midtransClientKey = clientKey
+
+  await prisma.tenant.update({ where: { id: session.tenantId }, data })
+  revalidatePath('/pengaturan')
+  return { success: true }
+}
+
 export async function updatePassword(formData: FormData) {
   const session = await verifySession()
 

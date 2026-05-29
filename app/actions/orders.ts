@@ -20,6 +20,8 @@ type CreateOrderInput = {
   customerName?: string
   tableNumber?: string
   cashReceived?: number
+  midtransTransactionId?: string
+  midtransGatewayOrderId?: string
 }
 
 export async function createOrder(input: CreateOrderInput) {
@@ -72,6 +74,8 @@ export async function createOrder(input: CreateOrderInput) {
           amount: input.total,
           method: input.paymentMethod,
           status: 'SUCCESS',
+          transactionId: input.midtransTransactionId ?? null,
+          gatewayData: input.midtransGatewayOrderId ?? null,
         },
       },
     },

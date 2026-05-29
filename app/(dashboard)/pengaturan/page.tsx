@@ -21,6 +21,9 @@ export default async function PengaturanPage() {
         taxRate: true,
         accentColor: true,
         theme: true,
+        midtransServerKey: true,
+        midtransClientKey: true,
+        midtransIsProduction: true,
       },
     }),
     prisma.user.findUnique({
@@ -34,8 +37,15 @@ export default async function PengaturanPage() {
   return (
     <div className="h-full p-6 overflow-y-auto">
       <SettingsForm
-        tenant={tenant}
+        tenant={{
+          ...tenant,
+          // Never pass raw keys to the client — only expose whether they're set
+          midtransHasServerKey: !!tenant.midtransServerKey,
+          midtransHasClientKey: !!tenant.midtransClientKey,
+          midtransIsProduction: tenant.midtransIsProduction,
+        }}
         role={session.role}
+        isDemo={session.isDemo}
         userTheme={user?.theme ?? null}
       />
     </div>

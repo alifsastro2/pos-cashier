@@ -7,6 +7,7 @@ import { buildThemeVars } from '@/lib/utils/color'
 import { logout } from '@/app/actions/auth'
 import { FlaskConical, LogOut } from 'lucide-react'
 import type { ThemeMode } from '@/lib/utils/color'
+import { Toaster } from 'sonner'
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const user = await getCurrentUser()
@@ -54,6 +55,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
         </main>
       </div>
       <OrderToastProvider />
+      <Toaster position="top-center" richColors toastOptions={{ style: { zIndex: 99999 } }} />
     </div>
   )
 }
